@@ -26,7 +26,6 @@ services:
       - "3478:3478/udp"
       - "3478:3478/tcp"
       - "5349:5349/tcp"
-      # relay port range (adjust and open in firewall)
       - "49152-65535:49152-65535/udp"
 
   backend:
@@ -41,6 +40,8 @@ services:
     restart: unless-stopped
     networks:
       - app-network
+    ports:
+      - "5000:5000"
 
   frontend:
     build:
@@ -51,6 +52,8 @@ services:
     restart: unless-stopped
     networks:
       - app-network
+    ports:
+      - "3000:3000"
 
 volumes:
   pgdata:
