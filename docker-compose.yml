@@ -1,0 +1,107 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: messaging_app_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: messaging_app
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - messaging_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: messaging_app_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - messaging_network
+
+  coturn:
+    image: coturn/coturn:latest
+    container_name: messaging_app_coturn
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "3479:3479/tcp"
+      - "3479:3479/udp"
+      - "5349:5349/tcp"
+      - "5349:5349/udp"
+      - "5350:5350/tcp"
+      - "5350:5350/udp"
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    networks:
+      - messaging_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: messaging_app_backend
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: development
+      PORT: 5000
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/messaging_app
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: ${JWT_SECRET:-your_super_secret_jwt_key_change_this_in_production}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-your_super_secret_refresh_key_change_this_in_production}
+      JWT_EXPIRATION: 15m
+      JWT_REFRESH_EXPIRATION: 7d
+      TURN_SERVER_URL: turn:coturn:3478
+      TURN_USERNAME: ${TURN_USERNAME:-turnuser}
+      TURN_PASSWORD: ${TURN_PASSWORD:-turnpassword}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://172.29.242.253:3000}
+      SOCKET_IO_PINGINTERVAL: 25000
+      SOCKET_IO_PINGTIMEOUT: 60000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - messaging_network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: messaging_app_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: ${REACT_APP_API_URL:-http://172.29.242.253:5000/api}
+      REACT_APP_SOCKET_URL: ${REACT_APP_SOCKET_URL:-http://172.29.242.253:5000}
+      REACT_APP_TURN_SERVERS: '${REACT_APP_TURN_SERVERS:-[{"urls": ["turn:coturn:3478"], "username": "turnuser", "credential": "turnpassword"}]}'
+    depends_on:
+      - backend
+    networks:
+      - messaging_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  messaging_network:
+    driver: bridge
